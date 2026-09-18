@@ -177,3 +177,38 @@ async def test_ollama_requests_bounded_context_window():
         await OllamaProvider(cfg).generate(_MESSAGES)
     sent = json.loads(route.calls.last.request.content)
     assert sent["options"]["num_ctx"] == 2048
+
+
+@pytest.mark.asyncio
+async def test_ollama_ignores_system_proxy(monkeypatch: pytest.MonkeyPatch):
+    """Every client the provider builds must pass ``trust_env=False``.
+
+    With a system/env proxy configured, httpx sends the request to the proxy
+    in absolute-form (``GET http://localhost:11434/...``); the MLX shim's
+    uvicorn answers 404 to that. Real Ollama's Go server happened to tolerate
+    it, which is why this only surfaced on the 2026-09-18 switch. respx mocks
+    below the proxy layer, so the check is on the constructor kwargs.
+    """
+    from jarvis.phrase.providers import ollama as ollama_mod
+
+    seen: list[dict[str, object]] = []
+    real_client = httpx.AsyncClient
+
+    def spy(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        seen.append(kwargs)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(ollama_mod.httpx, "AsyncClient", spy)
+    cfg = OllamaConfig()
+    with respx.mock(base_url=cfg.base_url) as router:
+        router.post("/api/chat").respond(
+            200, json={"message": {"role": "assistant", "content": "Sir."}}
+        )
+        router.get("/api/tags").respond(200, json={"models": []})
+        p = OllamaProvider(cfg)
+        await p.generate(_MESSAGES)
+        async for _ in p.generate_stream(_MESSAGES):
+            pass
+        await p.healthcheck()
+    assert len(seen) == 3
+    assert all(kw.get("trust_env") is False for kw in seen), seen

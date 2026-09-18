@@ -85,8 +85,10 @@ async def verify_candidates(
     ]
 
     try:
+        # trust_env=False: skip the macOS system proxy for the local server
+        # (see phrase/providers/ollama.py for why it breaks the MLX shim).
         async with httpx.AsyncClient(
-            base_url=ollama_cfg.base_url, timeout=timeout_s,
+            base_url=ollama_cfg.base_url, timeout=timeout_s, trust_env=False,
         ) as client:
             r = await client.post(
                 "/api/chat",

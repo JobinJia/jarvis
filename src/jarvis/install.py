@@ -369,7 +369,9 @@ def scan_environment(jarvis_dir: Path | None = None) -> EnvScan:
     scan.has_jarvis_en_voice = (base / "voices" / "jarvis_en.wav").exists()
     scan.has_jarvis_zh_voice = (base / "voices" / "jarvis_zh.wav").exists()
     try:
-        r = httpx.get("http://localhost:11434/api/tags", timeout=1.0)
+        # trust_env=False: don't route the local probe via the system proxy
+        # (see phrase/providers/ollama.py).
+        r = httpx.get("http://localhost:11434/api/tags", timeout=1.0, trust_env=False)
         if r.status_code == 200:
             scan.ollama_up = True
             scan.ollama_models = [m["name"] for m in r.json().get("models", [])]

@@ -1,4 +1,16 @@
-"""Ollama local LLM provider (uses /api/chat)."""
+"""Ollama local LLM provider (uses /api/chat).
+
+Also fronts the MLX shim (``~/.vimo/mlx-ollama``), which speaks the same
+``/api/chat`` NDJSON on the same port since 2026-09-18.
+
+Every client here is built with ``trust_env=False``: httpx otherwise picks up
+the macOS *system* proxy (Clash on 127.0.0.1:7897) and sends the request to
+it in absolute-form (``GET http://localhost:11434/api/chat``). Real Ollama's
+Go server tolerated that; the shim's uvicorn does not strip the scheme/host
+and answers 404 for every route. The system exception list nominally covers
+``localhost`` but is stored as one space-joined string, so Python's bypass
+check never matches it. A local server never needs a proxy anyway.
+"""
 from __future__ import annotations
 
 import json
@@ -41,7 +53,8 @@ class OllamaProvider(PhraseProvider):
 
     async def generate(self, messages: list[dict[str, str]]) -> str:
         async with httpx.AsyncClient(
-            base_url=self.cfg.base_url, timeout=self.cfg.timeout_seconds
+            base_url=self.cfg.base_url, timeout=self.cfg.timeout_seconds,
+            trust_env=False,
         ) as client:
             r = await client.post(
                 "/api/chat",
@@ -60,7 +73,8 @@ class OllamaProvider(PhraseProvider):
         ``message.content`` holding the token delta.
         """
         async with httpx.AsyncClient(
-            base_url=self.cfg.base_url, timeout=self.cfg.timeout_seconds
+            base_url=self.cfg.base_url, timeout=self.cfg.timeout_seconds,
+            trust_env=False,
         ) as client:
             async with client.stream(
                 "POST",
@@ -83,7 +97,9 @@ class OllamaProvider(PhraseProvider):
 
     async def healthcheck(self) -> bool:
         try:
-            async with httpx.AsyncClient(base_url=self.cfg.base_url, timeout=1.0) as c:
+            async with httpx.AsyncClient(
+                base_url=self.cfg.base_url, timeout=1.0, trust_env=False,
+            ) as c:
                 r = await c.get("/api/tags")
                 return r.status_code == 200
         except httpx.HTTPError:
