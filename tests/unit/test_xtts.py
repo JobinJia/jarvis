@@ -661,9 +661,13 @@ async def test_xtts_stream_stops_retrying_when_playback_cancelled(
     cfg = _guarded_cfg(tmp_path, max_synth_attempts=3)
     p = XTTSProvider(cfg)
     fake_model = MagicMock()
-    # Attempt 1 is flagged at once; attempt 2 blocks until the test lets it
-    # go, so the cancel lands while a retry is in flight. Everything is
-    # flagged, so without the stop check a third attempt would follow.
+    # Attempt 1 is flagged at once; attempt 2 announces itself and then
+    # blocks until the test lets it go, so the cancel provably lands while a
+    # retry is in flight (waiting on the pre-roll alone was a race: the
+    # producer thread often had not finished attempt 1 when stop was set,
+    # and correctly quit after it — calls == 1). Everything is flagged, so
+    # without the stop check a third attempt would follow.
+    in_retry = threading.Event()
     release = threading.Event()
     calls = 0
 
@@ -671,6 +675,7 @@ async def test_xtts_stream_stops_retrying_when_playback_cancelled(
         nonlocal calls
         calls += 1
         if calls == 2:
+            in_retry.set()
             release.wait(5)
         return _seconds(3.0)
 
@@ -680,6 +685,7 @@ async def test_xtts_stream_stops_retrying_when_playback_cancelled(
             patch.object(p, "_conditioning_for", return_value=("g", "s")):
         agen = p.stream("The task is clear.", lang="en")
         await agen.__anext__()  # pre-roll: the producer thread is running
+        assert await asyncio.to_thread(in_retry.wait, 5)  # now mid-attempt 2
         closing = asyncio.ensure_future(agen.aclose())  # sets stop, joins
         await asyncio.sleep(0.05)  # aclose has set stop and is now waiting
         release.set()  # attempt 2 returns into a set stop flag
