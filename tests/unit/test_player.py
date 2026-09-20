@@ -424,6 +424,17 @@ def _fake_sounddevice(created: list[_FakeRawStream]) -> types.ModuleType:
 
     mod.RawOutputStream = _raw_output_stream
     mod.PortAudioError = _FakePortAudioError
+    # Pa_Terminate / Pa_Initialize pair spawn() uses to re-enumerate devices.
+    mod.reinit_calls = 0
+
+    def _terminate() -> None:
+        pass
+
+    def _initialize() -> None:
+        mod.reinit_calls += 1
+
+    mod._terminate = _terminate
+    mod._initialize = _initialize
     return mod
 
 
@@ -446,6 +457,34 @@ async def test_pcm_player_spawn_opens_stream_with_pcm_spec():
     assert stream.callback is not None
     assert stream.started is False
     assert seen == [player]
+
+
+@pytest.mark.asyncio
+async def test_pcm_player_reenumerates_devices_before_each_open(monkeypatch: pytest.MonkeyPatch):
+    """PortAudio freezes its device list at init, so a daemon that has run
+    for days keeps playing into whatever was the default back then (the
+    2026-09-20 silence: monitor audio vs built-in speakers). spawn() must
+    re-init before each open — but not while another stream is live, since
+    Pa_Terminate would tear that one down mid-utterance."""
+    from jarvis import player as player_mod
+    from jarvis.player import PCMPlayer
+
+    # Earlier tests leave streams open; start from a clean count.
+    monkeypatch.setattr(player_mod, "_pcm_live", 0)
+    created: list[_FakeRawStream] = []
+    fake = _fake_sounddevice(created)
+    with patch.dict(sys.modules, {"sounddevice": fake}):
+        first = await PCMPlayer.spawn(rate=24000, channels=1)
+        assert fake.reinit_calls == 1
+        # A second stream while the first is still open: no refresh.
+        second = await PCMPlayer.spawn(rate=24000, channels=1)
+        assert fake.reinit_calls == 1
+        await first.abort()
+        await second.abort()
+        # Both released: the next open refreshes again.
+        third = await PCMPlayer.spawn(rate=24000, channels=1)
+        assert fake.reinit_calls == 2
+        await third.abort()
 
 
 @pytest.mark.asyncio

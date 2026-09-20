@@ -42,6 +42,12 @@ _pcm_wedged = False
 # on the same ffplay path a wedge does, so `pcm_sink_unusable` reports both.
 _pcm_unavailable = False
 
+# PortAudio streams currently open in this process (opened and not yet
+# released). Guards the device-list refresh in PCMPlayer.spawn: Pa_Terminate
+# tears down every open stream, so the refresh only runs when this is zero.
+_pcm_live = 0
+_pcm_live_lock = threading.Lock()
+
 # Invoked once, with the reason, the first time this process wedges. The daemon
 # registers a handler that schedules a restart — nothing inside the process can
 # clear a wedge, so without one the degradation lasts until someone notices.
@@ -312,6 +318,26 @@ class PCMPlayer:
                     player._underruns += 1
                     outdata[take:need] = bytes(need - take)
 
+            # PortAudio enumerates output devices ONCE, at Pa_Initialize, and
+            # "default output" is resolved against that frozen list. A daemon
+            # runs for days; the moment the user switches output (monitor
+            # audio <-> built-in speakers, headphones) every later stream is
+            # still bound to the old device, and Jarvis plays into a
+            # speaker nobody is listening to. Found 2026-09-20: two days of
+            # "no sound" with the log showing full playback each time —
+            # a restart cured it instantly. Re-init before each open (when no
+            # stream is live, since Pa_Terminate would close it) so the
+            # binding follows the system default.
+            global _pcm_live
+            with _pcm_live_lock:
+                refresh = _pcm_live == 0
+            if refresh:
+                try:
+                    sd._terminate()
+                    sd._initialize()
+                except Exception as exc:  # noqa: BLE001 — stale list beats no audio
+                    logger.warning("pcm: device re-enumeration failed ({}); using stale list", exc)
+
             stream = sd.RawOutputStream(
                 samplerate=rate, channels=channels, dtype="int16",
                 callback=_callback,
@@ -324,6 +350,8 @@ class PCMPlayer:
                 blocksize=rate // 5,
                 latency="high",
             )
+            with _pcm_live_lock:
+                _pcm_live += 1
             player = cls(stream, rate, channels)
             player_box.append(player)
             with state_lock:
@@ -391,12 +419,17 @@ class PCMPlayer:
         that wait is unbounded — an inline call froze the whole daemon for
         six hours on 2026-07-06 (loop dead, socket backlog full, SIGTERM
         unserviceable)."""
-        with contextlib.suppress(Exception):
-            if abort:
-                self._stream.abort()
-            else:
-                self._stream.stop()
-            self._stream.close()
+        global _pcm_live
+        try:
+            with contextlib.suppress(Exception):
+                if abort:
+                    self._stream.abort()
+                else:
+                    self._stream.stop()
+                self._stream.close()
+        finally:
+            with _pcm_live_lock:
+                _pcm_live -= 1
 
     def _start_release(self, *, abort: bool) -> threading.Thread:
         """Kick off (or return the already-running) release thread. First
