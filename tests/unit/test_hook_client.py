@@ -681,12 +681,31 @@ def test_session_start_not_cancelled_by_first_user_prompt(tmp_path: Path):
     assert briefing["session_id"] is None
 
 
-def test_forward_event_session_start_resume_is_dropped(tmp_path: Path):
-    """SessionStart fires on /clear and resume too — we only want the
-    briefing on a genuine cold start, not whenever the user wipes context."""
+def test_forward_event_session_start_resume_becomes_session_resume(tmp_path: Path):
+    """A resumed session gets a short welcome-back (session_resume), not the
+    full briefing and not silence. Like the briefing it carries no
+    session_id, so the user's first prompt cannot cancel it."""
+    sock_path = tmp_path / "j.sock"
+    received = _start_unix_echo_server(sock_path)
+    payload = {
+        "hook_event_name": "SessionStart",
+        "session_id": "sess",
+        "source": "resume",
+        "cwd": "/Users/me/pchat",
+    }
+    assert forward_event(io.StringIO(json.dumps(payload)), sock_path) is True
+    row = _recv_one(received)
+    assert row["notification_type"] == "session_resume"
+    assert row["session_id"] is None
+    assert row["tool_input"] == {"project": "pchat"}
+
+
+def test_forward_event_session_start_clear_and_compact_are_dropped(tmp_path: Path):
+    """SessionStart fires on /clear and compaction too — those stay silent
+    rather than greeting whenever the user wipes context."""
     sock_path = tmp_path / "j.sock"
     _start_unix_echo_server(sock_path)
-    for source in ("resume", "clear"):
+    for source in ("clear", "compact"):
         payload = {
             "hook_event_name": "SessionStart",
             "session_id": "sess",

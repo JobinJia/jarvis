@@ -12,6 +12,9 @@ NotificationType = Literal[
     # New CC/Codex session — daemon composes a Jarvis briefing
     # (greeting + local time + weather) instead of going via the LLM router.
     "session_start",
+    # A session was resumed (`claude --resume`) — a short LLM-phrased
+    # "welcome back", not the full briefing.
+    "session_resume",
     # A tool/command failed (CC PostToolUseFailure). Jarvis speaks a short,
     # graver-toned line naming the failed tool + the error gist.
     "tool_failure",
@@ -51,6 +54,7 @@ Emotion = Literal["warm", "neutral", "gentle", "grave", "pleased", "sardonic"]
 
 EVENT_EMOTION: dict[str, Emotion] = {
     "session_start": "warm",
+    "session_resume": "warm",
     "permission_prompt": "neutral",
     "idle_prompt": "gentle",
     "tool_failure": "grave",

@@ -217,6 +217,15 @@ _SESSION_END_CLAUSE = (
     "a brief, warm farewell of three to six words. Do not summarise the work."
 )
 
+# Session resumed (SessionStart source=resume). The full briefing is for cold
+# starts only; a resume gets one short greeting instead of silence.
+_RESUME_CLAUSE = (
+    " This is a SESSION-RESUME notice: the user has just reopened an earlier "
+    "Claude session; the summary names the project. Reply with one brief, "
+    "warm welcome-back sentence of four to eight words, naming the project "
+    "if given. No time, no weather, no summary of past work, no question."
+)
+
 # Context compacted (PostCompact). Brief 'done, moving on'.
 _POST_COMPACT_CLAUSE = (
     " This is a POST-COMPACTION notice: the context has been compressed. "
@@ -480,6 +489,8 @@ def build_messages(
         sys += _API_ERROR_CLAUSE
     elif event.notification_type == "session_end":
         sys += _SESSION_END_CLAUSE
+    elif event.notification_type == "session_resume":
+        sys += _RESUME_CLAUSE
     elif event.notification_type == "context_compacted":
         sys += _POST_COMPACT_CLAUSE
     elif event.notification_type == "context_overflow":

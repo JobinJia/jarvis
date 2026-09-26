@@ -614,6 +614,7 @@ def _render_configured_toml(choices: WizardChoices, *, preserve: dict | None = N
             "elicitation_dialog",
             "ask_user_question",
             "session_start",
+            "session_resume",
             "tool_failure",
             # "task_complete" fires after every assistant turn — opt in by
             # adding it here to hear a brief "All done, sir."

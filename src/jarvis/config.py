@@ -355,6 +355,7 @@ class BehaviorConfig:
             "elicitation_dialog",
             "ask_user_question",
             "session_start",
+            "session_resume",
             "tool_failure",
             # `task_complete` (CC Stop) fires after every assistant turn, so
             # it stays opt-in: not in the default allowlist. Add it to

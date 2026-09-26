@@ -35,6 +35,7 @@ def test_load_config_returns_defaults_when_file_missing(tmp_path: Path):
         "elicitation_dialog",
         "ask_user_question",
         "session_start",
+        "session_resume",
         "tool_failure",
         "context_compacting",
         "rate_limited",

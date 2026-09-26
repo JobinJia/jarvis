@@ -187,12 +187,27 @@ def _translate_cc_payload(payload: dict, lang_mode: str = "en") -> dict | None:
 
     hook_event = payload.get("hook_event_name")
     if hook_event == "SessionStart":
-        # Only the genuine cold start should speak. CC also sends this
-        # event on `/clear` and resumed sessions; those shouldn't blast
-        # the user with a fresh briefing every time. `source` is one of
+        # Only the genuine cold start gets the full briefing. CC also sends
+        # this event on `/clear`, compaction and resumed sessions; those
+        # shouldn't blast the user with a fresh briefing every time (resume
+        # gets a one-line welcome instead, see below). `source` is one of
         # "startup", "resume", "clear", "compact" — both clients use the
         # same field.
         source = payload.get("source")
+        if source == "resume":
+            # A resumed session gets a short LLM-phrased "welcome back"
+            # instead of the full briefing — silence here read as "Jarvis
+            # is broken" (2026-09-26, `claude --resume` in another tab).
+            # session_id dropped for the same first-prompt-cancel reason as
+            # the briefing below; the project name gives the line a hook.
+            cwd = payload.get("cwd")
+            return {
+                "notification_type": "session_resume",
+                "tool_name": None,
+                "tool_input": {"project": Path(cwd).name} if cwd else {},
+                "cwd": cwd,
+                "session_id": None,
+            }
         if source and source != "startup":
             return None
         # Deliberately drop the session_id. SessionStart is immediately
